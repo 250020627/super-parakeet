@@ -1,0 +1,88 @@
+/**
+ * 通过TLE 计算 卫星在某一时刻的 Beta 角(卫星绕地球轨道平面与太阳地心位置之间的角度。)
+ * @return Beta 角度
+ * @throws OrekitException
+ */
+
+import org.hipparchus.geometry.euclidean.threed.Vector3D;
+import org.orekit.bodies.CelestialBody;
+import org.orekit.bodies.CelestialBodyFactory;
+import org.orekit.data.DataContext;
+import org.orekit.data.DataProvidersManager;
+import org.orekit.data.DirectoryCrawler;
+import org.orekit.propagation.SpacecraftState;
+import org.orekit.propagation.analytical.tle.TLE;
+import org.orekit.propagation.analytical.tle.TLEPropagator;
+import org.orekit.time.AbsoluteDate;
+import org.orekit.time.TimeScalesFactory;
+import org.orekit.utils.PVCoordinates;
+
+import java.io.File;
+
+public class BetaAngle {
+
+    public static double calculateBetaAngle(String line1, String line2, AbsoluteDate targetDate) {
+        // 设置 Orekit 数据路径
+        String orekitDataPath = "./dat/orekit-data";
+        File orekitDataFolder = new File(orekitDataPath);
+
+        // 设置 Orekit 数据提供者
+        DataProvidersManager manager = DataContext.getDefault().getDataProvidersManager();
+        manager.addProvider(new DirectoryCrawler(orekitDataFolder));
+
+        // 使用 TLE 创建 TLEPropagator
+        TLE tle = new TLE(line1, line2);
+        TLEPropagator propagator = TLEPropagator.selectExtrapolator(tle);
+
+        // 获取目标日期的卫星状态（位置和速度）
+        SpacecraftState state = propagator.propagate(targetDate);
+
+        // 创建一个表示太阳的 CelestialBody 对象
+        CelestialBody sun = CelestialBodyFactory.getSun();
+
+        // 获取太阳在目标日期的位置和速度
+        PVCoordinates sunPV = sun.getPVCoordinates(targetDate, state.getFrame());
+
+        // 计算卫星到太阳的向量
+        Vector3D satToSun = sunPV.getPosition().subtract(state.getPVCoordinates().getPosition());
+
+        // 计算卫星轨道的法线（位置和速度的叉积）
+        Vector3D normalToOrbit = Vector3D.crossProduct(state.getPVCoordinates().getPosition(), state.getPVCoordinates().getVelocity());
+
+        // 计算 Beta 角度
+        double betaAngle = Vector3D.angle(satToSun, normalToOrbit);
+        if (Vector3D.dotProduct(satToSun, normalToOrbit) < 0) {
+            betaAngle = -betaAngle;
+        }
+
+        // 将 Beta 角度转换为角度制 若结果为负数，则加上 90 度，若结果为正数，则不变
+        double betaAngleDegrees = Math.toDegrees(betaAngle);
+        if (betaAngleDegrees < 0) {
+            betaAngleDegrees += 90;
+        }
+        return betaAngleDegrees;
+    }
+
+    // 测试
+    public static void main(String[] args) {
+        // 设置 Orekit 数据路径
+        String orekitDataPath = "./dat/orekit-data";
+        File orekitDataFolder = new File(orekitDataPath);
+        // 设置 Orekit 数据提供者
+        DataProvidersManager manager = DataContext.getDefault().getDataProvidersManager();
+        manager.addProvider(new DirectoryCrawler(orekitDataFolder));
+
+        // 设置目标日期
+        AbsoluteDate targetDate = new AbsoluteDate(2023, 5, 9, 2, 0, 0, TimeScalesFactory.getUTC());
+
+        // 设置 TLE
+        String line1 = "1 55973U 23039A   23129.47509398  .00007764  00000-0  37689-3 0  9998";
+        String line2 = "2 55973  97.4242 279.2996 0016340  86.5909 358.5328 15.18630139  7305";
+
+        // 计算 Beta 角度
+        double betaAngle = calculateBetaAngle(line1, line2, targetDate);
+
+        // 输出结果
+        System.out.println("Beta Angle: " + betaAngle);
+    }
+}
