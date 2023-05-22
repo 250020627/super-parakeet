@@ -1,0 +1,99 @@
+import org.hipparchus.geometry.euclidean.threed.Vector3D;
+import org.orekit.bodies.*;
+import org.orekit.data.*;
+import org.orekit.errors.OrekitException;
+import org.orekit.frames.*;
+import org.orekit.propagation.SpacecraftState;
+import org.orekit.propagation.analytical.tle.*;
+import org.orekit.propagation.events.EclipseDetector;
+import org.orekit.time.*;
+import org.orekit.utils.*;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+
+public class UmbraCalculator {
+    public static void main(String[] args) {
+        try {
+            // 设置 Orekit 数据路径
+            String orekitDataPath = "./dat/orekit-data";
+            File orekitDataFolder = new File(orekitDataPath);
+            // 设置 Orekit 数据提供者
+            DataProvidersManager manager = DataContext.getDefault().getDataProvidersManager();
+            manager.addProvider(new DirectoryCrawler(orekitDataFolder));
+
+            // TLE数据
+            String line1 = "1 55973U 23039A   23129.47509398  .00007764  00000-0  37689-3 0  9998";
+            String line2 = "2 55973  97.4242 279.2996 0016340  86.5909 358.5328 15.18630139  7305";
+            TLE tle = new TLE(line1, line2);
+
+            // 创建TLE推广器
+            TLEPropagator propagator = TLEPropagator.selectExtrapolator(tle);
+
+            // 创建一个在给定时间范围内的时间向量
+            AbsoluteDate start = new AbsoluteDate(2023, 5, 9, 2, 0, 00.000, TimeScalesFactory.getUTC());
+            AbsoluteDate end = new AbsoluteDate(2023, 5, 10, 3, 0, 00.000, TimeScalesFactory.getUTC());
+            double step = 0.5; // 每1秒计算一次
+
+            // 创建地球和太阳
+            OneAxisEllipsoid earth = new OneAxisEllipsoid(Constants.WGS84_EARTH_EQUATORIAL_RADIUS, Constants.WGS84_EARTH_FLATTENING, FramesFactory.getITRF(IERSConventions.IERS_2010, true));
+            CelestialBody sun = CelestialBodyFactory.getSun();
+
+            // Create the event detector
+            // Create the event detector
+            EclipseDetector eclipseDetector = new EclipseDetector(sun, Constants.WGS84_EARTH_EQUATORIAL_RADIUS / Constants.SUN_RADIUS, earth);
+
+
+            // Add the event detector to the propagator
+            propagator.addEventDetector(eclipseDetector);
+
+            // 创建文件写入器
+            PrintWriter writer = new PrintWriter(new FileWriter("result.txt"));
+
+            // Inside your for loop
+            boolean inShadow = false;
+            AbsoluteDate enterShadowTime = null;
+            AbsoluteDate exitShadowTime = null;
+
+            for (AbsoluteDate date = start; date.compareTo(end) <= 0; date = date.shiftedBy(step)) {
+                SpacecraftState spacecraftState = propagator.propagate(date);
+                Vector3D satPosition = spacecraftState.getPVCoordinates().getPosition();
+                Vector3D sunPosition = sun.getPVCoordinates(date, FramesFactory.getICRF()).getPosition();
+                Vector3D earthToSat = satPosition.subtract(Vector3D.ZERO);
+                Vector3D earthToSun = sunPosition.subtract(Vector3D.ZERO);
+
+                // Angle between the vectors
+                double angle = Vector3D.angle(earthToSat, earthToSun);
+                double threshold = Math.PI / 2 + Math.acos(earth.getEquatorialRadius() / satPosition.getNorm());
+
+                // Check for the eclipse event
+                double g = eclipseDetector.g(spacecraftState);
+
+                if (g < 0) {
+                    if (!inShadow) {
+                        // Entering Earth's shadow
+                        inShadow = true;
+                        enterShadowTime = date;
+                    }
+                } else {
+                    if (inShadow) {
+                        // Exiting Earth's shadow
+                        inShadow = false;
+                        exitShadowTime = date;
+
+                        // Print and save the result
+                        System.out.println("进入本影时间：" + enterShadowTime + " 离开本影时间：" + exitShadowTime + " 两个向量之间的夹角：earthToSat, earthToSun)" + angle);
+                        writer.println("进入本影时间：" + enterShadowTime + " 离开本影时间：" + exitShadowTime + " 两个向量之间的夹角：earthToSat, earthToSun)" + angle);
+                        writer.println();
+                    }
+                }
+
+            }
+            writer.close();
+        } catch (OrekitException | IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
